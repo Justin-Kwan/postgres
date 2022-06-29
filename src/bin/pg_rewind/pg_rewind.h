@@ -14,6 +14,7 @@
 #include "access/timeline.h"
 #include "common/logging.h"
 #include "datapagemap.h"
+#include "filemap.h"
 #include "libpq-fe.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
@@ -44,6 +45,7 @@ extern void findLastCheckpoint(const char *datadir, XLogRecPtr searchptr,
 							   const char *restoreCommand);
 extern XLogRecPtr readOneRecord(const char *datadir, XLogRecPtr ptr,
 								int tliIndex, const char *restoreCommand);
+extern file_action_t decide_wal_file_action(const char *fname);
 
 /* in pg_rewind.c */
 extern void progress_report(bool finished);

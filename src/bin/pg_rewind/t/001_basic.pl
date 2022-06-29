@@ -78,6 +78,31 @@ sub run_test
 		"insert into drop_tbl values ('in primary, after promotion')");
 	primary_psql("DROP TABLE drop_tbl");
 
+	# Record last modification time of WAL segment file common between both
+	# source and target, stored on current primary server. pg_rewind should
+	# refrain from overwriting this file with the source's newly forked copy.
+	$node_primary->psql(
+		'postgres',
+		"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000010000000000000002');",
+		stdout => \my $common_wal_modified_at);
+
+	# Record last modification time of WAL segment file that is partially
+	# written to just before the new timeline, but still common between both
+	# source and target. pg_rewind should overwrite this file with the source's
+	# copy to be safe.
+	$node_primary->psql(
+		'postgres',
+		"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000010000000000000003');",
+		stdout => \my $last_common_tli1_wal_modified_at);
+
+	# Record last modification time of first diverged WAL segment file on the
+	# old primary's timeline. pg_rewind should overwrite this file with the
+	# source's newly forked copy.
+	$node_primary->psql(
+		'postgres',
+		"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000020000000000000003');",
+		stdout => \my $last_common_tli2_wal_modified_at);
+
 	# Before running pg_rewind, do a couple of extra tests with several
 	# option combinations.  As the code paths taken by those tests
 	# do not change for the "local" and "remote" modes, just run them
@@ -171,6 +196,44 @@ in primary, before promotion
 		qq(in primary
 ),
 		'drop');
+
+	if ($test_mode eq 'local' || $test_mode eq 'remote')
+	{
+		# Last modification time of WAL segment files common between both
+		# source and target is unchanged on the target. This indicates that
+		# pg_rewind skipped copying the source's files and overwriting the
+		# target's files.
+		$node_primary->psql(
+			'postgres',
+			"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000010000000000000002');",
+			stdout => \my $common_wal_last_modified_at);
+
+		cmp_ok($common_wal_last_modified_at,
+			'==', $common_wal_modified_at,
+			'common WAL segment file on target, before divergence, not overwritten');
+
+		# Last modification time of WAL segment files just before and after
+		# the new timeline should now be further ahead. (Both of these WAL
+		# files are internally represented by segment 3.) This indicates that
+		# pg_rewind copied the source's files and overwrote the target's files.
+		$node_primary->psql(
+			'postgres',
+			"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000010000000000000003');",
+			stdout => \my $last_common_tli1_wal_last_modified_at);
+
+		cmp_ok($last_common_tli1_wal_last_modified_at,
+			'>=', $last_common_tli1_wal_modified_at,
+			'last common WAL segment file on target, before divergence, overwritten');
+
+		$node_primary->psql(
+			'postgres',
+			"SELECT extract(epoch from modification) FROM pg_stat_file('pg_wal/000000020000000000000003');",
+			stdout => \my $last_common_tli2_wal_last_modified_at);
+
+		cmp_ok($last_common_tli2_wal_last_modified_at,
+			'>', $last_common_tli2_wal_modified_at,
+			'last common WAL segment file on target, before divergence, overwritten');
+	}
 
 	# Permissions on PGDATA should be default
   SKIP:

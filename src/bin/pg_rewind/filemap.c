@@ -49,6 +49,7 @@ static uint32 hash_string_pointer(const char *s);
 #define SH_RAW_ALLOCATOR	pg_malloc0
 #define SH_DECLARE
 #define SH_DEFINE
+#include "access/xlog_internal.h"
 #include "lib/simplehash.h"
 
 #define FILEHASH_INITIAL_SIZE	1000
@@ -728,11 +729,25 @@ decide_file_action(file_entry_t *entry)
 		case FILE_TYPE_REGULAR:
 			if (!entry->isrelfile)
 			{
-				/*
-				 * It's a non-data file that we have no special processing
-				 * for. Copy it in toto.
-				 */
-				return FILE_ACTION_COPY;
+                /* Handle WAL segment file. */
+                const char  *fname;
+                char        *slash;
+
+                /* Split filepath into directory & filename. */
+                slash = strrchr(path, '/');
+                if (slash)
+					fname = slash + 1;
+                else
+					fname = path;
+
+				if (IsXLogFileName(fname))
+                    return decide_wal_file_action(fname);
+
+                /*
+                * It's a non-data file that we have no special processing
+                * for. Copy it in toto.
+                */
+                return FILE_ACTION_COPY;
 			}
 			else
 			{

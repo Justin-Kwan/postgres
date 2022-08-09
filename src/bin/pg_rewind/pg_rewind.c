@@ -17,7 +17,6 @@
 #include "pg_rewind.h"
 #include "fetch.h"
 #include "file_ops.h"
-#include "filemap.h"
 #include "logging.h"
 
 #include "access/timeline.h"
@@ -27,6 +26,8 @@
 #include "common/restricted_token.h"
 #include "getopt_long.h"
 #include "storage/bufpage.h"
+
+XLogRecPtr divergerec;
 
 static void usage(const char *progname);
 
@@ -92,7 +93,6 @@ main(int argc, char **argv)
 	};
 	int			option_index;
 	int			c;
-	XLogRecPtr	divergerec;
 	int			lastcommontliIndex;
 	XLogRecPtr	chkptrec;
 	TimeLineID	chkpttli;

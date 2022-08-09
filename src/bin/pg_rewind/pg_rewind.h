@@ -14,7 +14,7 @@
 #include "c.h"
 
 #include "datapagemap.h"
-
+#include "filemap.h"
 #include "access/timeline.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
@@ -32,6 +32,8 @@ extern TimeLineHistoryEntry *targetHistory;
 extern int	targetNentries;
 
 /* in parsexlog.c */
+extern XLogRecPtr divergerec;
+
 extern void extractPageMap(const char *datadir, XLogRecPtr startpoint,
 			   int tliIndex, XLogRecPtr endpoint);
 extern void findLastCheckpoint(const char *datadir, XLogRecPtr searchptr,

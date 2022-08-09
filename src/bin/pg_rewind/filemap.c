@@ -23,6 +23,7 @@
 #include "catalog/catalog.h"
 #include "catalog/pg_tablespace.h"
 #include "storage/fd.h"
+#include "access/xlog_internal.h"
 
 filemap_t  *filemap = NULL;
 
@@ -163,6 +164,16 @@ process_source_file(const char *path, file_type_t type, size_t newsize,
 
 			if (!exists || !isRelDataFile(path))
 			{
+                const char  *fname;
+                char        *slash;
+
+                /* Split filepath into directory & filename. */
+                slash = strrchr(path, '/');
+                if (slash)
+                    fname = slash + 1;
+                else
+                    fname = path;
+
 				/*
 				 * File exists in source, but not in target. Or it's a
 				 * non-data file that we have no special processing for. Copy
@@ -176,11 +187,53 @@ process_source_file(const char *path, file_type_t type, size_t newsize,
 					action = FILE_ACTION_NONE;
 					oldsize = statbuf.st_size;
 				}
-				else
-				{
-					action = FILE_ACTION_COPY;
-					oldsize = 0;
-				}
+                else if (IsXLogFileName(fname))
+                {
+                    /* Handle WAL segment file. */
+                    TimeLineID  file_tli;
+                    XLogSegNo	file_segno;
+                    XLogSegNo   last_common_segno;
+
+                    /*
+                     * Find last common WAL segment number between source and target before
+                     * divergence given last common LSN (byte position).
+                     */
+                    XLByteToSeg(divergerec, last_common_segno);
+
+                    /* Get current WAL segment number given current segment file name. */
+                    XLogFromFileName(fname, &file_tli, &file_segno);
+
+                    /*
+                     * Avoid unnecessarily copying WAL segment files created before last common
+                     * segment to avoid performance penalty when many WAL segment files are
+                     * retained on source and copied to target.
+                     *
+                     * These files are already common between new source (old target) and new
+                     * target (old source). Only WAL segment files after the last common segment
+                     * number on the new source need to be copied to the new target.
+                     */
+                    if (file_segno < last_common_segno)
+                    {
+                        fprintf(stdout, "WAL file entry \"%s\" not copied to target\n", fname);
+                        action = FILE_ACTION_NONE;
+                        oldsize = statbuf.st_size;
+                    }
+                    else
+                    {
+                        fprintf(stdout, "WAL file entry \"%s\" copied to target\n", fname);
+                        action = FILE_ACTION_COPY;
+                        oldsize = 0;
+                    }
+                }
+                else
+                {
+                    /*
+                     * It's a non-data file that we have no special processing
+                     * for. Copy it in toto.
+                     */
+                    action = FILE_ACTION_COPY;
+                    oldsize = 0;
+                }
 			}
 			else
 			{
